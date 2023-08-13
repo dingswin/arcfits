@@ -196,7 +196,7 @@ def resample_the_in_the_polar_coordinate(header, data=None, refpix_RA=None, refp
     #DelR = np.mean([beamRA, beamDec]) / 2. ## increment in R (of the polar coordinate); in pixel
     #DelR = max(beamRA, beamDec) / 2. ## increment in R (of the polar coordinate); in pixel
     DelR = beam_major / 2. ## increment in R (of the polar coordinate); in pixel
-    DelR *= 2. ## robustness factor
+    DelR *= 2. ## angular broadening factor (highly uncertain)
     length_RA = header['NAXIS1'] ## in pixel
     length_Dec = header['NAXIS2'] ## in pixel
     R_max = min(length_RA-refpix_RA, refpix_RA, length_Dec-refpix_Dec, refpix_Dec) ## in pixel
@@ -271,18 +271,25 @@ def plot_jet_ridgeline(fitsimage, how_many_sigma=7):
     refpix_RA, refpix_Dec = find_the_pixel_with_the_highest_flux_density(data)
     #refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
     #refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
-
     PAs_max, Rs_max, fluxes_max = obtain_jet_ridgeline(fitsimage, how_many_sigma)
     pixRAs_max  = refpix_RA - Rs_max * np.sin(PAs_max)
     pixDecs_max = refpix_Dec + Rs_max * np.cos(PAs_max)
     pixRAs_max = np.concatenate(([refpix_RA], pixRAs_max))
     pixDecs_max = np.concatenate(([refpix_Dec], pixDecs_max))
     
-    plt.imshow(data, cmap='cividis', norm=SymLogNorm(0.01, base=2), origin='lower')
+    fig = plt.figure()
+    plt.imshow(data, cmap='rainbow', norm=SymLogNorm(1e-2, base=10), origin='lower')
     #plt.imshow(data, cmap='cividis', norm=LogNorm(), origin='lower')
-    plt.colorbar()
-    plt.plot(pixRAs_max, pixDecs_max, color='magenta')
-    outputpdf = fitsimage.replace('clean.fits', 'jet_ridgeline.pdf')
-    #plt.savefig(outputpdf)
-    plt.show()
+    
+    plt.plot(pixRAs_max[:-1], pixDecs_max[:-1], color='white', linewidth=1)
+    plt.arrow(pixRAs_max[-2], pixDecs_max[-2], pixRAs_max[-1]-pixRAs_max[-2], pixDecs_max[-1]-pixDecs_max[-2], color='white', linewidth=0.3, width=1.5, head_width=6, head_length=12, fill=True, length_includes_head=True)
+    
+    cbar = plt.colorbar()
+    cbar.set_label(r'flux density ($\mathrm{Jy~{beam}^{-1}}$)', rotation=-90, labelpad=15)
+    #plt.plot(pixRAs_max, pixDecs_max, color='white')
+    fig.tight_layout()
+    fitsimagename = fitsimage.split('/')[-1]
+    outputpdf = fitsimagename.replace('clean.fits', 'jet_ridgeline.pdf')
+    plt.savefig(outputpdf)
+    #plt.show()
     plt.clf()
