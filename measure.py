@@ -6,6 +6,7 @@ Forked out from https://github.com/AXXE251/AGN-JET-RL that was originally create
 """
 from astropy.io import fits
 import numpy as np
+from numpy import unravel_index
 from scipy import ndimage
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, SymLogNorm
@@ -159,7 +160,7 @@ def ____pixels_on_a_circle_around_the_reference_pixel(header, diffpix):
     pixels_RA  = pixels_RA_on_circle = refpix_RA + diffpix * np.sin(PAs) ## numpy array of float
     pixels_Dec = pixels_Dec_on_circle = refpix_Dec + diffpix * np.cos(PAs) ## numpy array of float
     return pixels_RA, pixels_Dec, PAs
-def resample_the_in_the_polar_coordinate(header):
+def resample_the_in_the_polar_coordinate(header, data=None, refpix_RA=None, refpix_Dec=None):
     """
     Input parameters
     ----------------
@@ -177,16 +178,25 @@ def resample_the_in_the_polar_coordinate(header):
     PAs : 1D numpy array of float (in rad)
         position angle values of the polar coordinate.
     """
-    refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
-    refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
-    beamPA = header['BPA'] * np.pi / 180. ## in rad
-    beamRA = np.abs(np.sin(beamPA)) * header['BMAJ'] ## in deg
-    beamRA /= np.abs(header['CDELT1']) ## in pixel 
-    beamDec = np.abs(np.cos(beamPA)) * header['BMAJ'] ## in deg
-    beamDec /= np.abs(header['CDELT2']) ## in pixel 
+    if (refpix_RA==None) and (refpix_Dec==None):
+        use_brightest_spot_as_refpix = True
+        if data.all() == None:
+            print('data has to be provided when use_brightest_spot_as_refpix; aborting...')
+            sys.exit()
+        refpix_RA, refpix_Dec = find_the_pixel_with_the_highest_flux_density(data)
+    #refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
+    #refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
+    #beamPA = header['BPA'] * np.pi / 180. ## in rad
+    #beamRA = np.abs(np.sin(beamPA)) * header['BMAJ'] ## in deg
+    #beamRA /= np.abs(header['CDELT1']) ## in pixel 
+    #beamDec = np.abs(np.cos(beamPA)) * header['BMAJ'] ## in deg
+    #beamDec /= np.abs(header['CDELT2']) ## in pixel 
+    beam_major = header['BMAJ'] / min(np.abs([header['CDELT1'], header['CDELT2']])) ## in pixel
     
     #DelR = np.mean([beamRA, beamDec]) / 2. ## increment in R (of the polar coordinate); in pixel
-    DelR = max(beamRA, beamDec) / 2. ## increment in R (of the polar coordinate); in pixel
+    #DelR = max(beamRA, beamDec) / 2. ## increment in R (of the polar coordinate); in pixel
+    DelR = beam_major / 2. ## increment in R (of the polar coordinate); in pixel
+    DelR *= 2. ## robustness factor
     length_RA = header['NAXIS1'] ## in pixel
     length_Dec = header['NAXIS2'] ## in pixel
     R_max = min(length_RA-refpix_RA, refpix_RA, length_Dec-refpix_Dec, refpix_Dec) ## in pixel
@@ -196,27 +206,29 @@ def resample_the_in_the_polar_coordinate(header):
     pixels_RA  = refpix_RA - np.array([Rs]).T * np.sin(PAs) ## 2D numpy array of float
     pixels_Dec = refpix_Dec + np.array([Rs]).T * np.cos(PAs) ## 2D numpy array of float
     return pixels_RA, pixels_Dec, Rs, PAs
-
-def get_fluxes_densities_in_polar_coordinate(data, header):
+def find_the_pixel_with_the_highest_flux_density(data):
+    refpix_Dec, refpix_RA = unravel_index(data.argmax(), data.shape)
+    return refpix_RA, refpix_Dec
+def get_flux_densities_in_polar_coordinate(data, header):
     """
     Output parameters
     -----------------
     fluxes : 2D array of float
         in Jy/beam. fluxes as a map of R and PA.
     """
-    pixels_RA, pixels_Dec, Rs, PAs = resample_the_in_the_polar_coordinate(header)
-    fluxes = ndimage.map_coordinates(data, np.stack((pixels_RA, pixels_Dec))) ## determine the flux density along the slices
+    pixels_RA, pixels_Dec, Rs, PAs = resample_the_in_the_polar_coordinate(header, data)
+    fluxes = ndimage.map_coordinates(data, np.stack((pixels_Dec, pixels_RA))) ## determine the flux density along the slices
     return fluxes, Rs, PAs
 
 def ____fluxes_on_a_circle_around_the_reference_pixel(data, header, diffpix):
     pixels_RA, pixels_Dec, PAs = ____pixels_on_a_circle_around_the_reference_pixel(header, diffpix)
-    fluxes = get_fluxes_densities_at_a_subset_of_pixels(data, pixels_RA, pixels_Dec)
+    fluxes = get_flux_densities_at_a_subset_of_pixels(data, pixels_RA, pixels_Dec)
     return PAs, fluxes
 
 def obtain_jet_ridgeline(fitsimage, how_many_sigma=7):
     data, header = read_fits_image(fitsimage)
     flux_threshold = derive_flux_threshold(data, how_many_sigma) ## in Jy/beam
-    fluxes, Rs, PAs = get_fluxes_densities_in_polar_coordinate(data, header)
+    fluxes, Rs, PAs = get_flux_densities_in_polar_coordinate(data, header)
     
     fluxes_max = np.array([])
     Rs_max = np.array([])
@@ -226,6 +238,7 @@ def obtain_jet_ridgeline(fitsimage, how_many_sigma=7):
         fluxes_at_R = fluxes[i,:]
         max_flux = max(fluxes_at_R)
         if max_flux > flux_threshold:
+            #print(fluxes_at_R)
             index = fluxes_at_R == max_flux
             PA_max = PAs[index]
             PAs_max = np.append(PAs_max, PA_max)
@@ -234,16 +247,30 @@ def obtain_jet_ridgeline(fitsimage, how_many_sigma=7):
     return PAs_max, Rs_max, fluxes_max
 
 
-def derive_flux_threshold(data, how_many_sigma=7):
-    std_flux = np.std(data)
-    mean_flux = np.mean(data)
+def derive_flux_threshold(data, auto_mask=True, how_many_sigma=7):
+    data1 = data.flatten()
+    if auto_mask: ## remove detected components in an iterative manner
+        iterations = 10
+        count = 1
+        while count < iterations:
+            std_flux = np.std(data1)
+            mean_flux = np.mean(data1)
+            mask_threshold = mean_flux + 7 * std_flux ## in Jy/beam
+            #print('mask_threshold = %f Jy/beam' % mask_threshold)
+            index = data1 < mask_threshold
+            data1 = data1[index]
+            count += 1
+    
+    std_flux = np.std(data1)
+    mean_flux = np.mean(data1)
     flux_threshold = mean_flux + how_many_sigma * std_flux ## in Jy/beam
     return flux_threshold ## in Jy/beam
 
 def plot_jet_ridgeline(fitsimage, how_many_sigma=7):
     data, header = read_fits_image(fitsimage)
-    refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
-    refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
+    refpix_RA, refpix_Dec = find_the_pixel_with_the_highest_flux_density(data)
+    #refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
+    #refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
 
     PAs_max, Rs_max, fluxes_max = obtain_jet_ridgeline(fitsimage, how_many_sigma)
     pixRAs_max  = refpix_RA - Rs_max * np.sin(PAs_max)
@@ -251,9 +278,11 @@ def plot_jet_ridgeline(fitsimage, how_many_sigma=7):
     pixRAs_max = np.concatenate(([refpix_RA], pixRAs_max))
     pixDecs_max = np.concatenate(([refpix_Dec], pixDecs_max))
     
-    plt.imshow(data, cmap='cividis', norm=SymLogNorm(0.001, base=10), origin='lower')
+    plt.imshow(data, cmap='cividis', norm=SymLogNorm(0.01, base=2), origin='lower')
     #plt.imshow(data, cmap='cividis', norm=LogNorm(), origin='lower')
     plt.colorbar()
-    plt.plot(pixRAs_max, pixDecs_max)
+    plt.plot(pixRAs_max, pixDecs_max, color='magenta')
+    outputpdf = fitsimage.replace('clean.fits', 'jet_ridgeline.pdf')
+    #plt.savefig(outputpdf)
     plt.show()
     plt.clf()
