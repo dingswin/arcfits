@@ -4,10 +4,14 @@ NOTE
 ----
 Forked out from https://github.com/AXXE251/AGN-JET-RL that was originally created on 20230712 by Dr. Wei Zhao and Dr. Xiaofeng Li
 """
+import sys, os
 from astropy.io import fits
+from astropy.table import Table
 import numpy as np
 from numpy import unravel_index
 from scipy import ndimage
+from scipy import special as sp
+from arcfits import others as _others
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, SymLogNorm
 from matplotlib.patches import Ellipse
@@ -225,14 +229,26 @@ def ____fluxes_on_a_circle_around_the_reference_pixel(data, header, diffpix):
     fluxes = get_flux_densities_at_a_subset_of_pixels(data, pixels_RA, pixels_Dec)
     return PAs, fluxes
 
-def obtain_jet_ridgeline(fitsimage, how_many_sigma=7):
+def obtain_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4, write_out_to_file=True):
+    """
+    Input parameters
+    ----------------
+    how_many_rms : int
+        The significance of detection in the fits image.
+    how_many_sigma : int
+        This parameter is used to estimate the position angle range, in which the jet ridgeline resides at how_many_sigma significance.
+    """
     data, header = read_fits_image(fitsimage)
-    flux_threshold = derive_flux_threshold(data, how_many_sigma) ## in Jy/beam
+    flux_threshold = derive_flux_threshold(data, how_many_rms) ## in Jy/beam
+    flux_density_deficit, junk1, junk2 = calculate_maximum_flux_density_deficit(data, how_many_sigma)
     fluxes, Rs, PAs = get_flux_densities_in_polar_coordinate(data, header)
     
+    no_extended_radio_feature = True
     fluxes_max = np.array([])
     Rs_max = np.array([])
     PAs_max = np.array([])
+    PAs_max_lower = np.array([])
+    PAs_max_upper = np.array([])
     for i in range(len(Rs)):
         R = Rs[i]
         fluxes_at_R = fluxes[i,:]
@@ -244,38 +260,128 @@ def obtain_jet_ridgeline(fitsimage, how_many_sigma=7):
             PAs_max = np.append(PAs_max, PA_max)
             fluxes_max = np.append(fluxes_max, max_flux)
             Rs_max = np.append(Rs_max, R)
-    return PAs_max, Rs_max, fluxes_max
+            no_extended_radio_feature = False
 
+            lower_flux = max_flux - flux_density_deficit ## in Jy/beam
+            PAs_target = flux_to_position_angles(fluxes_at_R, PAs, lower_flux)
+            if len(PAs_target) != 2:
+                print('The number of solutions is %d instead of 2! Aborting...' % len(PAs_target))
+                sys.exit()
+            PAs_max_lower = np.append(PAs_max_lower, min(PAs_target))
+            PAs_max_upper = np.append(PAs_max_upper, max(PAs_target))
 
-def derive_flux_threshold(data, auto_mask=True, how_many_sigma=7):
+    if no_extended_radio_feature:
+        print('No radio component other than the jet core is detected in the image. In other words, the radio jet is too compact for determining the jet direction. Aborting...')
+        sys.exit()
+    if write_out_to_file:
+        table = Table([PAs_max, PAs_max_lower, PAs_max_upper, Rs_max, fluxes_max], names = ['PA_max', 'PA_max_lower', 'PA_max_upper', 'R_max', 'flux_max'])
+        fitsimagename = fitsimage.split('/')[-1]
+        output = fitsimagename.replace('clean.fits', 'position_angles_at_jet_ridgeline.dat')
+        table.write(output, format='ascii', overwrite=True)
+    return table
+
+def flux_to_position_angles(flux_chain, PAs, flux_target):
+    fluxes = np.array(flux_chain)
+    flux_diffs = fluxes - flux_target
+    multiply = flux_diffs[1:] * flux_diffs[:-1]
+    index = multiply <= 0
+    PAs_target = PAs[:-1][index]
+    return PAs_target
+
+def derive_flux_threshold(data, auto_mask=True, how_many_rms=7):
     data1 = data.flatten()
     if auto_mask: ## remove detected components in an iterative manner
-        iterations = 10
-        count = 1
-        while count < iterations:
-            std_flux = np.std(data1)
-            mean_flux = np.mean(data1)
-            mask_threshold = mean_flux + 7 * std_flux ## in Jy/beam
-            #print('mask_threshold = %f Jy/beam' % mask_threshold)
-            index = data1 < mask_threshold
-            data1 = data1[index]
-            count += 1
+        data1 = remove_detected_components_iteratively(data1, 7, 10)
     
     std_flux = np.std(data1)
     mean_flux = np.mean(data1)
-    flux_threshold = mean_flux + how_many_sigma * std_flux ## in Jy/beam
+    flux_threshold = mean_flux + how_many_rms * std_flux ## in Jy/beam
     return flux_threshold ## in Jy/beam
+def remove_detected_components_iteratively(chain, how_many_rms=7, iterations=10):
+    count = 1
+    while count < iterations:
+        std_flux = np.std(chain)
+        mean_flux = np.mean(chain)
+        mask_threshold = mean_flux + how_many_rms * std_flux ## in Jy/beam
+        index = chain < mask_threshold
+        chain = chain[index]
+        count += 1
+    return chain
+def count_negative_flux_densities(data, how_many_rms=3):
+    data1 = data.flatten()
+    data1 = remove_detected_components_iteratively(data1, 7, 10)
+    number_noises = len(data1)
+    
+    std_flux = np.std(data1)
+    mean_flux = np.mean(data1)
+    threshold = mean_flux - how_many_rms * std_flux ## in Jy/beam
+    index = data1 < threshold
+    number_negative = len(data1[index])
+    prob_negative = number_negative / number_noises
+    return number_negative, number_noises, prob_negative, std_flux
+def calculate_maximum_flux_density_deficit(data, how_many_sigma=5):
+    prob_target = 1 - sp.erf(how_many_sigma / 2**0.5)
+    junk1, number_noises, junk2, rms = count_negative_flux_densities(data, 1)
+    min_prob = 1. / number_noises
+    if prob_target < min_prob:
+        print('The significance target is not reachable. Use a lower how_many_sigma. Aborting...')
+        sys.exit()
+    how_many_rms_low = 0
+    how_many_rms_high = 10
+    how_many_rms = 0
+    prob = 1
+    iterations = 0
+    iteration_limit = 100
+    while abs(prob - prob_target) > 0.1 * prob_target:
+        how_many_rms = (how_many_rms_low + how_many_rms_high) / 2.
+        junk1, junk2, prob, junk3 = count_negative_flux_densities(data, how_many_rms)
+        if prob > prob_target:
+            how_many_rms_low = how_many_rms
+        else:
+            how_many_rms_high = how_many_rms
+        iterations += 1
+        if iterations > iteration_limit:
+            print('iteration limit reached. Use a lower how_many_sigma. Aborting...')
+            sys.exit()
 
-def plot_jet_ridgeline(fitsimage, how_many_sigma=7):
+    how_many_rms_down = how_many_rms
+    max_flux_density_deficit = how_many_rms_down * rms
+    return max_flux_density_deficit, how_many_rms_down, iterations
+
+def prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec):
+    PAs_max = t_RL['PA_max']
+    Rs_max = t_RL['R_max']
+    PAs_max_lower = t_RL['PA_max_lower']
+    PAs_max_upper = t_RL['PA_max_upper']
+    pixRAs_max  = refpix_RA - Rs_max * np.sin(PAs_max)
+    pixRAs_max_lower  = refpix_RA - Rs_max * np.sin(PAs_max_lower)
+    pixRAs_max_upper  = refpix_RA - Rs_max * np.sin(PAs_max_upper)
+    pixDecs_max = refpix_Dec + Rs_max * np.cos(PAs_max)
+    pixDecs_max_lower = refpix_Dec + Rs_max * np.cos(PAs_max_lower)
+    pixDecs_max_upper = refpix_Dec + Rs_max * np.cos(PAs_max_upper)
+    pixRAs_max = np.concatenate(([refpix_RA], pixRAs_max))
+    pixRAs_max_lower = np.concatenate(([refpix_RA], pixRAs_max_lower))
+    pixRAs_max_upper = np.concatenate(([refpix_RA], pixRAs_max_upper))
+    pixDecs_max = np.concatenate(([refpix_Dec], pixDecs_max))
+    pixDecs_max_lower = np.concatenate(([refpix_Dec], pixDecs_max_lower))
+    pixDecs_max_upper = np.concatenate(([refpix_Dec], pixDecs_max_upper))
+    return pixRAs_max, pixDecs_max, pixRAs_max_lower, pixDecs_max_lower, pixRAs_max_upper, pixDecs_max_upper
+    
+def plot_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4):
+    """
+    Input parameters
+    ----------------
+    how_many_rms : int
+        The significance of detection in the fits image.
+    how_many_sigma : int
+        This parameter is used to estimate the position angle range, in which the jet ridgeline resides at how_many_sigma significance.
+    """
     data, header = read_fits_image(fitsimage)
     refpix_RA, refpix_Dec = find_the_pixel_with_the_highest_flux_density(data)
     #refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
     #refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
-    PAs_max, Rs_max, fluxes_max = obtain_jet_ridgeline(fitsimage, how_many_sigma)
-    pixRAs_max  = refpix_RA - Rs_max * np.sin(PAs_max)
-    pixDecs_max = refpix_Dec + Rs_max * np.cos(PAs_max)
-    pixRAs_max = np.concatenate(([refpix_RA], pixRAs_max))
-    pixDecs_max = np.concatenate(([refpix_Dec], pixDecs_max))
+    t_RL = t_ridgeline = obtain_jet_ridgeline(fitsimage, how_many_rms, how_many_sigma)
+    pixRAs_max, pixDecs_max, pixRAs_max_lower, pixDecs_max_lower, pixRAs_max_upper, pixDecs_max_upper = prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec)
     
     fig = plt.figure()
     plt.imshow(data, cmap='rainbow', norm=SymLogNorm(1e-2, base=10), origin='lower')
@@ -283,10 +389,21 @@ def plot_jet_ridgeline(fitsimage, how_many_sigma=7):
     
     plt.plot(pixRAs_max[:-1], pixDecs_max[:-1], color='white', linewidth=1)
     plt.arrow(pixRAs_max[-2], pixDecs_max[-2], pixRAs_max[-1]-pixRAs_max[-2], pixDecs_max[-1]-pixDecs_max[-2], color='white', linewidth=0.3, width=1.5, head_width=6, head_length=12, fill=True, length_includes_head=True)
+    plt.plot(pixRAs_max_lower, pixDecs_max_lower, '--', color='white', linewidth=0.5)
+    plt.plot(pixRAs_max_upper, pixDecs_max_upper, '--', color='white', linewidth=0.5)
     
+
     cbar = plt.colorbar()
     cbar.set_label(r'flux density ($\mathrm{Jy~{beam}^{-1}}$)', rotation=-90, labelpad=15)
     #plt.plot(pixRAs_max, pixDecs_max, color='white')
+    plt.xlabel(r'$-\Delta\alpha\,\mathrm{(pixel)}; 1\,\mathrm{pixel}=%.2f\,\mathrm{mas}$' % abs(float(header['CDELT1']*3.6e6)))
+    plt.ylabel(r'$\Delta\delta\,\mathrm{(pixel)}; 1\,\mathrm{pixel}=%.2f\,\mathrm{mas}$' % float(header['CDELT2']*3.6e6))
+    RA0 = _others.deg2dms(header['CRVAL1'] / 15., 3)
+    Dec0 = _others.deg2dms(header['CRVAL2'], 2)
+    pixRA0 = header['CRPIX1']
+    pixDec0 = header['CRPIX2']
+    plt.title(r'%s, %s at (%d, %d)' % (RA0, Dec0, pixRA0, pixDec0), fontsize=15, pad=10)
+
     fig.tight_layout()
     fitsimagename = fitsimage.split('/')[-1]
     outputpdf = fitsimagename.replace('clean.fits', 'jet_ridgeline.pdf')
