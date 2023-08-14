@@ -12,91 +12,17 @@ from numpy import unravel_index
 from scipy import ndimage
 from scipy import special as sp
 from arcfits import others as _others
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm, SymLogNorm
-from matplotlib.patches import Ellipse
-import matplotlib
-matplotlib.rcParams.update({'font.size': 14})
+from arcfits import plot as _plot
 
-def word2pix(h,xy):
-	x,y = xy
-	x = h['crpix1'] -1 + x/(h['cdelt1']*3.6E6)
-	y = h['crpix2'] -1 + y/(h['cdelt2']*3.6E6)
-	return x,y
-def pix2word(h,xy):
-	x,y = xy
-	x = h['cdelt1']*3.6E6*(x-h['crpix1']+1)
-	y = h['cdelt2']*3.6E6*(y-h['crpix2']+1)
-	return x,y
-def W2w(h,w=()):
-	if len(w)==4:
-		x0, x1, y0, y1 = w
-	else:
-		x0, y0 = 0, 0
-		x1, y1 = h['naxis1']-1, h['naxis2']-1
-	x0, y0 = pix2word(h,(x0,y0))
-	x1, y1 = pix2word(h,(x1,y1))
-	w = x0, x1, y0, y1
-	return w
-
-def w2W(h,w=()):
-	if len(w)==4:
-		x0, x1, y0, y1 = w
-		x0, y0 = word2pix(h,(x0,y0))
-		x1, y1 = word2pix(h,(x1,y1))
-	else:
-		x0, y0 = 0, 0
-		x1, y1 = h['naxis1']-1, h['naxis2']-1
-	w = x0, x1, y0, y1
-	return w
-
-
-def max_d(h,img,a,o,d,a1,a2):
-    t1 = a1*(np.pi/180.0)
-    t2 = a2*(np.pi/180.0)
-    t=np.linspace(t1,t2,2000)
-    ang=t*(180.0/np.pi)
-    x = o[0] - d* np.cos(a*np.pi/180.0+t)/np.cos(t)                          #slicing with straight lines
-    y = o[1] + d* np.sin(a*np.pi/180.0+t)/np.cos(t)                          #slicing with straight lines
-    #x = o[0] - d* np.cos(a*np.pi/180.0+t)                                   #slicing with circular arcs
-    #y = o[1] + d* np.sin(a*np.pi/180.0+t)                                   #slicing with circular arcs
-    X, Y = word2pix(h,(x,y))
-    flux = ndimage.map_coordinates(np.transpose(img),np.vstack((X,Y))) #determine the flux density along the slices
-    flux_max=flux[np.argmax(flux)]                                           #determine the max flux density along the slices
-    ang_max=ang[np.argmax(flux)]                                             #determine the position angle of the max 
-    xmax=x[np.argmax(flux)]                                                  #determine the position of the max  in R.A.
-    ymax=y[np.argmax(flux)]                                                  #determine the position of the max  in Dec
-    doc=open("RL_data.txt",'a')                
-    print>>doc,xmax,ymax,flux_max,ang_max
-    doc.close() 
-
-def AGN_jet_position_angle(fitsimage):
+def ____AGN_jet_position_angle(fitsimage):
     """
+    All function started with '____' are deprecated.
+
     Input parameters
     ----------------
     fitsimage : str
         VLBI fits image, normally the AGN model well made for calibration.
     """
-    hdu = fits.open(fitsimage)
-    h = hdu[0]
-    h.header
-    return h
-    sys.exit()
-
-    a=-90        # assumed jet orientation at the starting point
-    o=(0,0)      # starting point for slicing
-    jl=1.6       # slicing range in radial direction in mas 
-    a1=120       # slicing range in azimuthal dirction in degrees upper limit
-    a2=-120      # slicing range in azimuthal dirction in degrees lower limit
-    sl=0.01      # step length in radial direction  in mas 
-    n=int(jl/0.01) # number of steps in radial direction
-
-
-    for i in range(n):
-        max_d(h,hdu[0].data[0,0,:,:],a,o,sl*i,a1,a2)
-    f=np.loadtxt('RL_data.txt')
-
-
     fig = plt.figure()
     fig.set_size_inches((5,6))
     rms = 0.0005
@@ -267,6 +193,7 @@ def obtain_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4, write_out_
             if len(PAs_target) != 2:
                 print('The number of solutions is %d instead of 2! Aborting...' % len(PAs_target))
                 sys.exit()
+            _plot.flux_to_PA_relation(fluxes_at_R, PAs, PAs_max, PAs_target, flux_threshold, R)
             PAs_max_lower = np.append(PAs_max_lower, min(PAs_target))
             PAs_max_upper = np.append(PAs_max_upper, max(PAs_target))
 
@@ -319,7 +246,7 @@ def count_negative_flux_densities(data, how_many_rms=3):
     number_negative = len(data1[index])
     prob_negative = number_negative / number_noises
     return number_negative, number_noises, prob_negative, std_flux
-def calculate_maximum_flux_density_deficit(data, how_many_sigma=5):
+def calculate_maximum_flux_density_deficit(data, how_many_sigma=4):
     prob_target = 1 - sp.erf(how_many_sigma / 2**0.5)
     junk1, number_noises, junk2, rms = count_negative_flux_densities(data, 1)
     min_prob = 1. / number_noises
@@ -347,66 +274,3 @@ def calculate_maximum_flux_density_deficit(data, how_many_sigma=5):
     how_many_rms_down = how_many_rms
     max_flux_density_deficit = how_many_rms_down * rms
     return max_flux_density_deficit, how_many_rms_down, iterations
-
-def prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec):
-    PAs_max = t_RL['PA_max']
-    Rs_max = t_RL['R_max']
-    PAs_max_lower = t_RL['PA_max_lower']
-    PAs_max_upper = t_RL['PA_max_upper']
-    pixRAs_max  = refpix_RA - Rs_max * np.sin(PAs_max)
-    pixRAs_max_lower  = refpix_RA - Rs_max * np.sin(PAs_max_lower)
-    pixRAs_max_upper  = refpix_RA - Rs_max * np.sin(PAs_max_upper)
-    pixDecs_max = refpix_Dec + Rs_max * np.cos(PAs_max)
-    pixDecs_max_lower = refpix_Dec + Rs_max * np.cos(PAs_max_lower)
-    pixDecs_max_upper = refpix_Dec + Rs_max * np.cos(PAs_max_upper)
-    pixRAs_max = np.concatenate(([refpix_RA], pixRAs_max))
-    pixRAs_max_lower = np.concatenate(([refpix_RA], pixRAs_max_lower))
-    pixRAs_max_upper = np.concatenate(([refpix_RA], pixRAs_max_upper))
-    pixDecs_max = np.concatenate(([refpix_Dec], pixDecs_max))
-    pixDecs_max_lower = np.concatenate(([refpix_Dec], pixDecs_max_lower))
-    pixDecs_max_upper = np.concatenate(([refpix_Dec], pixDecs_max_upper))
-    return pixRAs_max, pixDecs_max, pixRAs_max_lower, pixDecs_max_lower, pixRAs_max_upper, pixDecs_max_upper
-    
-def plot_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4):
-    """
-    Input parameters
-    ----------------
-    how_many_rms : int
-        The significance of detection in the fits image.
-    how_many_sigma : int
-        This parameter is used to estimate the position angle range, in which the jet ridgeline resides at how_many_sigma significance.
-    """
-    data, header = read_fits_image(fitsimage)
-    refpix_RA, refpix_Dec = find_the_pixel_with_the_highest_flux_density(data)
-    #refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
-    #refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
-    t_RL = t_ridgeline = obtain_jet_ridgeline(fitsimage, how_many_rms, how_many_sigma)
-    pixRAs_max, pixDecs_max, pixRAs_max_lower, pixDecs_max_lower, pixRAs_max_upper, pixDecs_max_upper = prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec)
-    
-    fig = plt.figure()
-    plt.imshow(data, cmap='rainbow', norm=SymLogNorm(1e-2, base=10), origin='lower')
-    #plt.imshow(data, cmap='cividis', norm=LogNorm(), origin='lower')
-    
-    plt.plot(pixRAs_max[:-1], pixDecs_max[:-1], color='white', linewidth=1)
-    plt.arrow(pixRAs_max[-2], pixDecs_max[-2], pixRAs_max[-1]-pixRAs_max[-2], pixDecs_max[-1]-pixDecs_max[-2], color='white', linewidth=0.3, width=1.5, head_width=6, head_length=12, fill=True, length_includes_head=True)
-    plt.plot(pixRAs_max_lower, pixDecs_max_lower, '--', color='white', linewidth=0.5)
-    plt.plot(pixRAs_max_upper, pixDecs_max_upper, '--', color='white', linewidth=0.5)
-    
-
-    cbar = plt.colorbar()
-    cbar.set_label(r'flux density ($\mathrm{Jy~{beam}^{-1}}$)', rotation=-90, labelpad=15)
-    #plt.plot(pixRAs_max, pixDecs_max, color='white')
-    plt.xlabel(r'$-\Delta\alpha\,\mathrm{(pixel)}; 1\,\mathrm{pixel}=%.2f\,\mathrm{mas}$' % abs(float(header['CDELT1']*3.6e6)))
-    plt.ylabel(r'$\Delta\delta\,\mathrm{(pixel)}; 1\,\mathrm{pixel}=%.2f\,\mathrm{mas}$' % float(header['CDELT2']*3.6e6))
-    RA0 = _others.deg2dms(header['CRVAL1'] / 15., 3)
-    Dec0 = _others.deg2dms(header['CRVAL2'], 2)
-    pixRA0 = header['CRPIX1']
-    pixDec0 = header['CRPIX2']
-    plt.title(r'%s, %s at (%d, %d)' % (RA0, Dec0, pixRA0, pixDec0), fontsize=15, pad=10)
-
-    fig.tight_layout()
-    fitsimagename = fitsimage.split('/')[-1]
-    outputpdf = fitsimagename.replace('clean.fits', 'jet_ridgeline.pdf')
-    plt.savefig(outputpdf)
-    #plt.show()
-    plt.clf()
