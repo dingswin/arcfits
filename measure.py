@@ -60,6 +60,18 @@ def read_fits_image(fitsimage):
         sys.exit()
     return data, header
 
+def beam_info(header):
+    """
+    Note
+    ----
+    Here it is assumed that header['CDELT1'] == header['CDELT2'].
+    """
+    beam_maj = header['BMAJ'] / min(np.abs([header['CDELT1'], header['CDELT2']])) ## in pixel
+    beam_min = header['BMIN'] / min(np.abs([header['CDELT1'], header['CDELT2']])) ## in pixel
+    beam_PA = header['BPA'] ## in deg
+    return beam_maj, beam_min, beam_PA
+    
+
 def raster_fits_image(fitsimage):
     data, header = read_fits_image(fitsimage)
     vmin = 3*np.mean(data)

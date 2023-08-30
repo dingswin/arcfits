@@ -5,6 +5,7 @@ import numpy as np
 from arcfits import others as _others
 from arcfits import measure as _measure
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
 from matplotlib.colors import LogNorm, SymLogNorm
 #from matplotlib.patches import Ellipse
 #import matplotlib
@@ -82,6 +83,14 @@ def jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4):
     cbar = plt.colorbar()
     cbar.set_label(r'flux density ($\mathrm{Jy~{beam}^{-1}}$)', rotation=-90, labelpad=15)
     #plt.plot(pixRAs_max, pixDecs_max, color='white')
+    
+    ## >> now plot synthesized beam 
+    beam_maj, beam_min, beam_PA = _measure.beam_info(header)
+    ax = plt.gca()
+    ellipse = Ellipse(xy=(header['NAXIS1']/10, header['NAXIS2']/10), width=beam_min, height=beam_maj, angle=beam_PA, fill=True, color='grey')
+    ax.add_patch(ellipse)
+    ## <<
+
     plt.xlabel(r'$-\Delta\alpha\,(\mathrm{pixel}; 1\,\mathrm{pixel}=%.2f\,\mathrm{mas}$)' % abs(float(header['CDELT1']*3.6e6)))
     plt.ylabel(r'$\Delta\delta\,(\mathrm{pixel}; 1\,\mathrm{pixel}=%.2f\,\mathrm{mas}$)' % float(header['CDELT2']*3.6e6))
     RA0 = _others.deg2dms(header['CRVAL1'] / 15., 3)
