@@ -7,8 +7,6 @@ from arcfits import measure as _measure
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from matplotlib.colors import LogNorm, SymLogNorm
-#from matplotlib.patches import Ellipse
-#import matplotlib
 #matplotlib.rcParams.update({'font.size': 14})
 
 def flux_to_PA_relation(fluxes_at_R, PAs, PAs_max, PAs_max_limit, flux_threshold, R):
@@ -34,6 +32,7 @@ def flux_to_PA_relation(fluxes_at_R, PAs, PAs_max, PAs_max_limit, flux_threshold
     output = '%s/flux_densities_at_%dpixel_from_the_jet_base.pdf' % (outputdir, R) 
     plt.savefig(output)
     plt.clf()
+    plt.close()
 
 def ____prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec):
     PAs_max = t_RL['PA_max']
@@ -129,3 +128,4 @@ def jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4):
     plt.savefig(outputpdf)
     #plt.show()
     plt.clf()
+    plt.close()

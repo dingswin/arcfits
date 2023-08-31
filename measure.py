@@ -2,7 +2,8 @@
 """
 NOTE
 ----
-Forked out from https://github.com/AXXE251/AGN-JET-RL that was originally created on 20230712 by Dr. Wei Zhao and Dr. Xiaofeng Li
+1. Forked out from https://github.com/AXXE251/AGN-JET-RL that was originally created on 20230712 by Dr. Wei Zhao and Dr. Xiaofeng Li.
+2. Functions started with '____' are deprecated.
 """
 import sys, os
 from astropy.io import fits
@@ -11,34 +12,8 @@ import numpy as np
 from numpy import unravel_index
 from scipy import ndimage
 from scipy import special as sp
-from arcfits import others as _others
+#from arcfits import others as _others
 from arcfits import plot as _plot
-
-def ____AGN_jet_position_angle(fitsimage):
-    """
-    All function started with '____' are deprecated.
-
-    Input parameters
-    ----------------
-    fitsimage : str
-        VLBI fits image, normally the AGN model well made for calibration.
-    """
-    fig = plt.figure()
-    fig.set_size_inches((5,6))
-    rms = 0.0005
-    levs = 3* rms * np.array([1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192])
-    w = (2.5,-2.5,-4,2)
-    win = W2w(h)
-    plt.plot(f[0:n-1,0],f[0:n-1,1],'r')
-    plt.contour(hdu[0].data[0,0,:,:],levs,extent=win,linewidths=0.5,colors='k')
-    plt.tick_params('both',direction='in',right=True,top=True,which='both')
-    plt.minorticks_on()
-    plt.xlim(w[0],w[1])
-    plt.ylim(w[2],w[3])
-    plt.xlabel('Relative RA (mas)')
-    plt.ylabel('Relative Dec (mas)')
-    fig.tight_layout()
-    plt.savefig('hello_jet.eps')
 
 def read_fits_image(fitsimage):
     """
@@ -150,6 +125,10 @@ def ____resample_the_in_the_polar_coordinate(header, data=None, refpix_RA=None, 
     return pixels_RA, pixels_Dec, Rs, PAs
 def resample_the_in_a_coordinate_resembling_the_synthesized_beam(header, data=None, refpix_RA=None, refpix_Dec=None):
     """
+    Description
+    -----------
+    The special coordinate used here has two dimensions -- PA and R, where PA stands for the position angle (east of north), and R represents the full major axis of ellipses that are similar to the synthesized beam (with identical PA0 and ratio between major and minor axis).
+
     Input parameters
     ----------------
     header : 
@@ -267,7 +246,7 @@ def obtain_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4, write_out_
         R = Rs[i]
         fluxes_at_R = fluxes[i,:] ## actually on an ellipse with the half major axis of R
         max_flux = max(fluxes_at_R)
-        #flux_75th_percentile = np.percentile(fluxes_at_R, 75) ## the largest quarter of the fluxes_at_R
+        #flux_75th_percentile = np.percentile(fluxes_at_R, 75) ## the largest quarter of the fluxes_at_R, it is unbelievable that extended jet can be spewed into such a large (90deg) opening angle
         #flux_25th_percentile = np.percentile(fluxes_at_R, 25) ## the largest quarter of the fluxes_at_R
         #print(flux_75th_percentile, flux_25th_percentile)
         median_flux = np.median(fluxes_at_R)
@@ -300,7 +279,7 @@ def obtain_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4, write_out_
     if write_out_to_file:
         table = Table([PAs_max, PAs_max_lower, PAs_max_upper, Rs_max, fluxes_max], names = ['PA_max', 'PA_max_lower', 'PA_max_upper', 'R_max', 'flux_max'])
         fitsimagename = fitsimage.split('/')[-1]
-        output = fitsimagename.replace('clean.fits', 'position_angles_at_jet_ridgeline.dat')
+        output = fitsimagename.replace('clean.fits', 'position_angles_at_jet_ridgeline_at_%dsigma_confidence.dat' % round(how_many_sigma))
         table.write(output, format='ascii', overwrite=True)
     return table
 
