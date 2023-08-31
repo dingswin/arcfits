@@ -283,7 +283,7 @@ def obtain_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4, write_out_
                 lower_flux = max_flux - flux_density_deficit ## in Jy/beam
                 PAs_target = flux_to_position_angles(fluxes_at_R, PAs, lower_flux)
                 if len(PAs_target) != 2:
-                    print('The number of solutions is %d instead of 2! Possibly the solutions do not belong to extended jet structures (instead belong to the unresolved region). Skip to the next step...' % len(PAs_target))
+                    print('The number of solutions is %d instead of 2! Possibly the solutions do not come from extended jet structures (instead belong to the unresolved region). Skip to the next step...' % len(PAs_target))
                     continue
                 else:
                     no_extended_radio_feature = False
