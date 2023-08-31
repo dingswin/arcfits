@@ -35,7 +35,7 @@ def flux_to_PA_relation(fluxes_at_R, PAs, PAs_max, PAs_max_limit, flux_threshold
     plt.savefig(output)
     plt.clf()
 
-def prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec):
+def ____prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec):
     PAs_max = t_RL['PA_max']
     Rs_max = t_RL['R_max']
     PAs_max_lower = t_RL['PA_max_lower']
@@ -46,6 +46,30 @@ def prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec):
     pixDecs_max = refpix_Dec + Rs_max * np.cos(PAs_max)
     pixDecs_max_lower = refpix_Dec + Rs_max * np.cos(PAs_max_lower)
     pixDecs_max_upper = refpix_Dec + Rs_max * np.cos(PAs_max_upper)
+    pixRAs_max = np.concatenate(([refpix_RA], pixRAs_max))
+    pixRAs_max_lower = np.concatenate(([refpix_RA], pixRAs_max_lower))
+    pixRAs_max_upper = np.concatenate(([refpix_RA], pixRAs_max_upper))
+    pixDecs_max = np.concatenate(([refpix_Dec], pixDecs_max))
+    pixDecs_max_lower = np.concatenate(([refpix_Dec], pixDecs_max_lower))
+    pixDecs_max_upper = np.concatenate(([refpix_Dec], pixDecs_max_upper))
+    return pixRAs_max, pixDecs_max, pixRAs_max_lower, pixDecs_max_lower, pixRAs_max_upper, pixDecs_max_upper
+def prepare_locations_in_the_image(t_RL, header, refpix_RA, refpix_Dec):
+    beam_maj, beam_min, beam_PA = _measure.beam_info(header) ## in pixel and deg
+    ratio_min_maj = float(beam_min) / float(beam_maj) 
+    PAs_max = t_RL['PA_max']
+    Rs_max = t_RL['R_max']
+    PAs_max_lower = t_RL['PA_max_lower']
+    PAs_max_upper = t_RL['PA_max_upper']
+    #pixRAs_max  = refpix_RA - Rs_max * np.sin(PAs_max)
+    #pixRAs_max_lower  = refpix_RA - Rs_max * np.sin(PAs_max_lower)
+    #pixRAs_max_upper  = refpix_RA - Rs_max * np.sin(PAs_max_upper)
+    #pixDecs_max = refpix_Dec + Rs_max * np.cos(PAs_max)
+    #pixDecs_max_lower = refpix_Dec + Rs_max * np.cos(PAs_max_lower)
+    #pixDecs_max_upper = refpix_Dec + Rs_max * np.cos(PAs_max_upper)
+    pixRAs_max, pixDecs_max = _measure.project_beam_like_elliptic_coordinate_to_Cartesian_1D(Rs_max, PAs_max, ratio_min_maj, beam_PA, refpix_RA, refpix_Dec)
+    pixRAs_max_lower, pixDecs_max_lower = _measure.project_beam_like_elliptic_coordinate_to_Cartesian_1D(Rs_max, PAs_max_lower, ratio_min_maj, beam_PA, refpix_RA, refpix_Dec)
+    pixRAs_max_upper, pixDecs_max_upper = _measure.project_beam_like_elliptic_coordinate_to_Cartesian_1D(Rs_max, PAs_max_upper, ratio_min_maj, beam_PA, refpix_RA, refpix_Dec)
+
     pixRAs_max = np.concatenate(([refpix_RA], pixRAs_max))
     pixRAs_max_lower = np.concatenate(([refpix_RA], pixRAs_max_lower))
     pixRAs_max_upper = np.concatenate(([refpix_RA], pixRAs_max_upper))
@@ -68,7 +92,7 @@ def jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4):
     #refpix_RA  = header['CRPIX1'] ## reference pixel in RA direction
     #refpix_Dec = header['CRPIX2'] ## reference pixel in Dec direction
     t_RL = t_ridgeline = _measure.obtain_jet_ridgeline(fitsimage, how_many_rms, how_many_sigma)
-    pixRAs_max, pixDecs_max, pixRAs_max_lower, pixDecs_max_lower, pixRAs_max_upper, pixDecs_max_upper = prepare_locations_in_the_image(t_RL, refpix_RA, refpix_Dec)
+    pixRAs_max, pixDecs_max, pixRAs_max_lower, pixDecs_max_lower, pixRAs_max_upper, pixDecs_max_upper = prepare_locations_in_the_image(t_RL, header, refpix_RA, refpix_Dec)
     
     fig = plt.figure()
     plt.imshow(data, cmap='rainbow', norm=SymLogNorm(1e-2, base=10), origin='lower')

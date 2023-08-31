@@ -102,7 +102,7 @@ def ____pixels_on_a_circle_around_the_reference_pixel(header, diffpix):
     pixels_RA  = pixels_RA_on_circle = refpix_RA + diffpix * np.sin(PAs) ## numpy array of float
     pixels_Dec = pixels_Dec_on_circle = refpix_Dec + diffpix * np.cos(PAs) ## numpy array of float
     return pixels_RA, pixels_Dec, PAs
-def resample_the_in_the_polar_coordinate(header, data=None, refpix_RA=None, refpix_Dec=None):
+def ____resample_the_in_the_polar_coordinate(header, data=None, refpix_RA=None, refpix_Dec=None):
     """
     Input parameters
     ----------------
@@ -148,17 +148,91 @@ def resample_the_in_the_polar_coordinate(header, data=None, refpix_RA=None, refp
     pixels_RA  = refpix_RA - np.array([Rs]).T * np.sin(PAs) ## 2D numpy array of float
     pixels_Dec = refpix_Dec + np.array([Rs]).T * np.cos(PAs) ## 2D numpy array of float
     return pixels_RA, pixels_Dec, Rs, PAs
+def resample_the_in_a_coordinate_resembling_the_synthesized_beam(header, data=None, refpix_RA=None, refpix_Dec=None):
+    """
+    Input parameters
+    ----------------
+    header : 
+        hdu[0].header
+
+    Output paramters
+    ----------------
+    pixels_RA : 2D numpy array of float (in pixel)
+        RAs of the positions on the ellipse
+    pixels_Dec : 2D numpy array of float (in pixel)
+        Decs of the positions on the ellipse
+    Rs : 1D numpy array of float (in pixel)
+        long axis R values of the beam-like elliptic coordinate.
+    PAs : 1D numpy array of float (in rad)
+        position angle values of the elliptic coordinate.
+    """
+    if (refpix_RA==None) and (refpix_Dec==None):
+        use_brightest_spot_as_refpix = True
+        if data.all() == None:
+            print('data has to be provided when use_brightest_spot_as_refpix; aborting...')
+            sys.exit()
+        refpix_RA, refpix_Dec = find_the_pixel_with_the_highest_flux_density(data)
+    
+    beam_maj, beam_min, beam_PA = beam_info(header) ## in pixel and deg
+    ratio_min_maj = float(beam_min) / float(beam_maj) 
+    R_min = beam_maj / 2. ## smallest R to estimate jet direction (within R0 is the beam); in pixel
+    length_RA = header['NAXIS1'] ## in pixel
+    length_Dec = header['NAXIS2'] ## in pixel
+    R_max = min(length_RA-refpix_RA, refpix_RA, length_Dec-refpix_Dec, refpix_Dec) ## in pixel
+    DelR = 10
+    Rs = np.arange(R_min, R_max+DelR, DelR) ## in pixel
+    PAs = position_angles = np.linspace(0, 2*np.pi, 500) ## east of north (anti-clockwise in the image)
+
+    pixels_RA, pixels_Dec = project_beam_like_elliptic_coordinate_to_Cartesian(Rs, PAs, ratio_min_maj, beam_PA, refpix_RA, refpix_Dec)
+    return pixels_RA, pixels_Dec, Rs, PAs
+def project_beam_like_elliptic_coordinate_to_Cartesian(Rs, PAs, ratio_min_maj, beam_PA, refpix_RA, refpix_Dec):
+    k = ratio_min_maj
+    PA0 = beam_PA * np.pi / 180. ## in rad
+    y2s = np.array([Rs]).T * np.cos(PAs - PA0) ## 2D numpy array of float
+    x2s = -k * np.array([Rs]).T * np.sin(PAs - PA0) ## 2D numpy array of float
+    
+    x1s = x2s * np.cos(PA0) - y2s * np.sin(PA0) ## 2D numpy array of float
+    y1s = y2s * np.cos(PA0) + x2s * np.sin(PA0) ## 2D numpy array of float
+    pixels_RA = x1s + refpix_RA ## 2D numpy array of float
+    pixels_Dec = y1s + refpix_Dec ## 2D numpy array of float
+    return pixels_RA, pixels_Dec
+def project_beam_like_elliptic_coordinate_to_Cartesian_1D(Rs, PAs, ratio_min_maj, beam_PA, refpix_RA, refpix_Dec):
+    if len(Rs) != len(PAs):
+        print('The length of Rs needs to match the length of PAs! Aborting...')
+        sys.exit()
+    k = ratio_min_maj
+    PA0 = beam_PA * np.pi / 180. ## in rad
+    y2s = np.array(Rs) * np.cos(PAs - PA0) ## 1D numpy array of float
+    x2s = -k * np.array(Rs) * np.sin(PAs - PA0) ## 1D numpy array of float
+    
+    x1s = x2s * np.cos(PA0) - y2s * np.sin(PA0) ## 1D numpy array of float
+    y1s = y2s * np.cos(PA0) + x2s * np.sin(PA0) ## 1D numpy array of float
+    pixels_RA = x1s + refpix_RA ## 1D numpy array of float
+    pixels_Dec = y1s + refpix_Dec ## 1D numpy array of float
+    return pixels_RA, pixels_Dec
+
+    
 def find_the_pixel_with_the_highest_flux_density(data):
     refpix_Dec, refpix_RA = unravel_index(data.argmax(), data.shape)
     return refpix_RA, refpix_Dec
-def get_flux_densities_in_polar_coordinate(data, header):
+def ____get_flux_densities_in_polar_coordinate(data, header):
     """
     Output parameters
     -----------------
     fluxes : 2D array of float
         in Jy/beam. fluxes as a map of R and PA.
     """
-    pixels_RA, pixels_Dec, Rs, PAs = resample_the_in_the_polar_coordinate(header, data)
+    pixels_RA, pixels_Dec, Rs, PAs = ____resample_the_in_the_polar_coordinate(header, data)
+    fluxes = ndimage.map_coordinates(data, np.stack((pixels_Dec, pixels_RA))) ## determine the flux density along the slices
+    return fluxes, Rs, PAs
+def get_flux_densities_in_beam_like_elliptic_coordinate(data, header):
+    """
+    Output parameters
+    -----------------
+    fluxes : 2D array of float
+        in Jy/beam. fluxes as a map of R and PA.
+    """
+    pixels_RA, pixels_Dec, Rs, PAs = resample_the_in_a_coordinate_resembling_the_synthesized_beam(header, data)
     fluxes = ndimage.map_coordinates(data, np.stack((pixels_Dec, pixels_RA))) ## determine the flux density along the slices
     return fluxes, Rs, PAs
 
@@ -177,9 +251,11 @@ def obtain_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4, write_out_
         This parameter is used to estimate the position angle range, in which the jet ridgeline resides at how_many_sigma significance.
     """
     data, header = read_fits_image(fitsimage)
-    flux_threshold = derive_flux_threshold(data, how_many_rms) ## in Jy/beam
+    flux_threshold = derive_flux_threshold(data, True, how_many_rms) ## in Jy/beam
+    flux_threshold_3rms = derive_flux_threshold(data, True, 3)
+    #print(flux_threshold_3rms)
     flux_density_deficit, junk1, junk2 = calculate_maximum_flux_density_deficit(data, how_many_sigma)
-    fluxes, Rs, PAs = get_flux_densities_in_polar_coordinate(data, header)
+    fluxes, Rs, PAs = get_flux_densities_in_beam_like_elliptic_coordinate(data, header)
     
     no_extended_radio_feature = True
     fluxes_max = np.array([])
@@ -189,25 +265,34 @@ def obtain_jet_ridgeline(fitsimage, how_many_rms=7, how_many_sigma=4, write_out_
     PAs_max_upper = np.array([])
     for i in range(len(Rs)):
         R = Rs[i]
-        fluxes_at_R = fluxes[i,:]
+        fluxes_at_R = fluxes[i,:] ## actually on an ellipse with the half major axis of R
         max_flux = max(fluxes_at_R)
+        #flux_75th_percentile = np.percentile(fluxes_at_R, 75) ## the largest quarter of the fluxes_at_R
+        #flux_25th_percentile = np.percentile(fluxes_at_R, 25) ## the largest quarter of the fluxes_at_R
+        #print(flux_75th_percentile, flux_25th_percentile)
+        median_flux = np.median(fluxes_at_R)
         if max_flux > flux_threshold:
-            #print(fluxes_at_R)
-            index = fluxes_at_R == max_flux
-            PA_max = PAs[index]
-            PAs_max = np.append(PAs_max, PA_max)
-            fluxes_max = np.append(fluxes_max, max_flux)
-            Rs_max = np.append(Rs_max, R)
-            no_extended_radio_feature = False
+            if median_flux > flux_threshold_3rms:
+                print('Still inside the jet-base blob. Skip to the next step...')
+                continue
+            else:
+                #print(fluxes_at_R)
+                index = fluxes_at_R == max_flux
+                PA_max = PAs[index]
 
-            lower_flux = max_flux - flux_density_deficit ## in Jy/beam
-            PAs_target = flux_to_position_angles(fluxes_at_R, PAs, lower_flux)
-            if len(PAs_target) != 2:
-                print('The number of solutions is %d instead of 2! Aborting...' % len(PAs_target))
-                sys.exit()
-            _plot.flux_to_PA_relation(fluxes_at_R, PAs, PAs_max, PAs_target, flux_threshold, R)
-            PAs_max_lower = np.append(PAs_max_lower, min(PAs_target))
-            PAs_max_upper = np.append(PAs_max_upper, max(PAs_target))
+                lower_flux = max_flux - flux_density_deficit ## in Jy/beam
+                PAs_target = flux_to_position_angles(fluxes_at_R, PAs, lower_flux)
+                if len(PAs_target) != 2:
+                    print('The number of solutions is %d instead of 2! Possibly the solutions do not belong to extended jet structures (instead belong to the unresolved region). Skip to the next step...' % len(PAs_target))
+                    continue
+                else:
+                    no_extended_radio_feature = False
+                    PAs_max = np.append(PAs_max, PA_max)
+                    fluxes_max = np.append(fluxes_max, max_flux)
+                    Rs_max = np.append(Rs_max, R)
+                    _plot.flux_to_PA_relation(fluxes_at_R, PAs, PAs_max, PAs_target, flux_threshold, R)
+                    PAs_max_lower = np.append(PAs_max_lower, min(PAs_target))
+                    PAs_max_upper = np.append(PAs_max_upper, max(PAs_target))
 
     if no_extended_radio_feature:
         print('No radio component other than the jet core is detected in the image. In other words, the radio jet is too compact for determining the jet direction. Aborting...')
